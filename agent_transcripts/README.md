@@ -12,7 +12,7 @@ happened to be right is not evidence of engineering judgement.
 | File | Contents |
 | :--- | :------- |
 | `01-phase-1-foundation.md` | Initial system prompt, spec interpretation, ambiguities found in the spec, and the design decisions reversed while writing the documentation. |
-| `02-phase-2-backend.md` | Database schema and FastAPI infrastructure. *(added when Phase 2 runs)* |
+| `02-phase-2-backend.md` | Database schema, SQLAlchemy models, FastAPI application, session and chat routes. Four corrections, all caught by running the code. |
 | `03-phase-3-agent-rag.md` | Ingestion, intent router, skills, SSE streaming. *(added when Phase 3 runs)* |
 | `04-phase-4-frontend.md` | React UI, LLM toggle, Artifact Viewer. *(added when Phase 4 runs)* |
 
@@ -25,8 +25,10 @@ Each phase log uses the same structure:
 3. **Ambiguities and resolutions** — where the specification was silent or self-conflicting, and the
    position taken.
 4. **Failures and corrections** — approaches attempted and abandoned, with the reason.
-5. **Output** — files produced.
-6. **Open items** — anything deferred to a later phase.
+5. **Verification** — for phases that produce running code, what was actually executed and what it
+   returned. Absent from Phase 1, which produced only documents.
+6. **Output** — files produced.
+7. **Open items** — anything deferred to a later phase.
 
 ## Conventions
 

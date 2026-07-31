@@ -1,0 +1,27 @@
+# --- Secrets ------------------------------------------------------------
+.env
+.env.local
+*.pem
+
+# --- Python -------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Node / frontend ----------------------------------------------------
+node_modules/
+dist/
+.vite/
+
+# --- Data ---------------------------------------------------------------
+# The transcript corpus is cloned at ingest time, never committed.
+data/
+*.log
+
+# --- OS -----------------------------------------------------------------
+.DS_Store

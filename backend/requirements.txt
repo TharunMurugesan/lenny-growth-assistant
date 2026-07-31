@@ -1,0 +1,23 @@
+# The Lenny Growth Assistant — backend dependencies
+# Python 3.11 or 3.12. Every dependency is pinned; the lockstep between
+# SQLAlchemy 2.x, asyncpg and pgvector is the fragile part of this set.
+
+# --- Web framework ------------------------------------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# --- Configuration ------------------------------------------------------
+pydantic==2.10.4
+pydantic-settings==2.7.0
+
+# --- Database -----------------------------------------------------------
+SQLAlchemy==2.0.36
+asyncpg==0.30.0
+pgvector==0.3.6
+greenlet==3.1.1          # required by SQLAlchemy's asyncio bridge
+
+# --- HTTP ---------------------------------------------------------------
+httpx==0.28.1            # Ollama transport and provider availability probes
+
+# --- LLM providers (wired in Phase 3; pinned now so the venv is stable) --
+anthropic==0.42.0

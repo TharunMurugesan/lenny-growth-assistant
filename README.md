@@ -38,12 +38,16 @@ it is updated as each phase is completed and verified.
 | Phase | Scope | Status |
 | :---- | :---- | :----- |
 | **1** | Project foundation and documentation (`README.md`, `design.md`, `architecture.md`, `PRD.md`, `agent_transcripts/`) | ✅ Complete |
-| **2** | PostgreSQL schema + SQLAlchemy models, FastAPI application, session and chat routes | ⬜ Not started |
+| **2** | PostgreSQL schema + SQLAlchemy models, FastAPI application, session and chat routes | ✅ Complete |
 | **3** | Transcript ingestion into the vector store, intent router, Skills A/B/C, SSE streaming | ⬜ Not started |
 | **4** | React chat UI, history sidebar, LLM toggle, Artifact Viewer | ⬜ Not started |
 
-Until Phase 2 lands, the setup instructions below describe the target system. They are the
-contract the implementation is written against, not a claim that the code already runs.
+The backend runs today: the schema applies, the app starts, and `/api/health`, `/api/sessions`
+and the validation half of `/api/chat` are live and verified against PostgreSQL 16 + pgvector
+0.8.6. **`POST /api/chat` does not yet generate an answer** — it validates the payload, checks
+session ownership, resolves the provider, and then returns `501 NOT_IMPLEMENTED`. Generation,
+retrieval and SSE streaming arrive in Phase 3, and the frontend in Phase 4; those sections below
+still describe the target system rather than shipped behaviour.
 
 ---
 
