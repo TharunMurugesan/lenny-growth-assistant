@@ -1007,22 +1007,45 @@ cross-episode synthesis — which is the actual value of a corpus of interviews.
 an off-topic question retrieves the 8 least-irrelevant chunks and the model dutifully synthesizes an
 answer from noise. The floor is what makes Skill A's honest decline reachable.
 
-**The floor value was measured in Phase 3, not assumed (closes O3).** This section originally
+**The floor value was measured, not assumed — twice (closes O3 and O16).** This section originally
 specified 0.35, chosen before any embeddings existed. Against `nomic-embed-text` that value never
-rejects anything — the model's cosine similarities sit in a compressed high band, so an off-topic
-query ("quantum chromodynamics lattice gauge theory") still scored 0.44–0.49 and returned a full
-result set, making Skill A's decline unreachable. Measured top-similarity over the corpus:
+rejects anything: cosine similarities sit in a compressed high band, so an off-topic query
+("quantum chromodynamics lattice gauge theory") still scored 0.44–0.49 and returned a full result
+set, making Skill A's decline unreachable.
 
-| Query type | Top similarity |
-| :--------- | :------------- |
-| On-topic   | 0.642 – 0.723  |
-| Off-topic  | 0.453 – 0.486  |
+0.55 was then chosen against a 386-chunk sample showing a clean gap (on-topic 0.642–0.723,
+off-topic 0.453–0.486). **That gap turned out to be an artifact of the small corpus.** Re-measured
+across all 12,113 chunks with 30 queries in three classes:
 
-0.55 sits inside that gap, deliberately nearer the off-topic ceiling: a false decline is
-recoverable (the user rephrases) where a confident answer synthesized from noise is not. Also
-tested and rejected: `nomic-embed-text`'s `search_query:` / `search_document:` task prefixes.
-Applying the query prefix alone *narrowed* separation to 0.101, because the stored vectors carry no
-matching document prefix — symmetric no-prefix embedding is the better pairing here.
+| Query class | n | min | mean | max |
+| :---------- | :- | :-- | :--- | :-- |
+| On-topic | 12 | 0.583 | 0.694 | 0.774 |
+| Off-topic | 12 | 0.476 | 0.534 | 0.597 |
+| Adjacent (business topics the corpus does not cover) | 6 | 0.543 | 0.592 | 0.630 |
+
+The classes now **overlap** — on-topic min (0.583) sits below off-topic max (0.597) — so no single
+cosine threshold separates them. The obvious alternatives fail too: mean-of-top-8 is actively
+inverted, scoring the on-topic *"what makes a retention loop work"* at 0.558 against the off-topic
+*"how do I file a software patent"* at 0.606. A 31× larger corpus simply offers more chances for a
+topically adjacent passage to score well.
+
+0.55 is retained regardless, because the alternative is worse and because the floor is not where
+grounding is actually enforced:
+
+1. Raising the floor above the off-topic ceiling would falsely decline squarely on-topic queries —
+   at 0.60, *"what makes a retention loop work"* returns nothing. A false decline on a covered
+   topic is a worse failure than passing chunks the model then declines to use.
+2. **The floor is a cheap pre-filter; Skill A's prompt is the grounding guarantee.** Given 8
+   irrelevant chunks for *"how do I structure an ESOP"*, the model replies that the excerpts
+   contain no such information and names what they *do* cover — a more specific and more useful
+   decline than the generic template. Verified end to end for three adjacent queries.
+
+What 0.55 still buys is the egregious cases — sourdough, northern lights, lattice gauge theory —
+declined for free without spending a model call.
+
+Also tested and rejected: `nomic-embed-text`'s `search_query:` / `search_document:` task prefixes.
+Applying the query prefix alone *narrowed* separation, because the stored vectors carry no matching
+document prefix — symmetric no-prefix embedding is the better pairing here.
 
 **Reranking** (a cross-encoder over the fused candidates) is a deliberate non-goal for this build:
 it adds a model dependency and 200–500ms for a marginal gain at top-8, and it would need a separate

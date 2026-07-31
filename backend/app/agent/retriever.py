@@ -37,28 +37,48 @@ RRF_K = 60  # standard constant; behaves well without corpus-specific tuning
 EF_SEARCH = 64  # above pgvector's default 40 for recall, below the latency knee
 MAX_PER_EPISODE = 3
 
-# Measured, not assumed — this closes open item O3.
+# Measured twice — at 386 chunks (O3) and again at the full 12,113 (O16).
 #
-# architecture.md §10.2 specifies 0.35, chosen a priori before any embeddings
-# existed. Against `nomic-embed-text` on this corpus that value never rejects
-# anything: the model's cosine similarities are compressed into a high band, so
-# an off-topic query ("quantum chromodynamics lattice gauge theory") still
-# scored 0.44-0.49 and returned a full result set. Skill A's honest decline was
-# unreachable.
+# architecture.md §10.2 originally specified 0.35, chosen before any embeddings
+# existed. That value never rejects anything: `nomic-embed-text` compresses
+# cosine similarities into a high band, so an off-topic query scored 0.44-0.49
+# and returned a full result set, leaving Skill A's decline unreachable.
 #
-# Measured top-similarity over the corpus:
-#     on-topic  queries: 0.642 - 0.723
-#     off-topic queries: 0.453 - 0.486
+# 0.55 was then chosen against a 386-chunk sample that showed a clean gap
+# (on-topic 0.642-0.723, off-topic 0.453-0.486). **That gap was an artifact of
+# the small corpus.** Re-measured across all 12,113 chunks with 30 queries:
 #
-# 0.55 sits inside that gap with margin on both sides. It is deliberately
-# closer to the off-topic ceiling than the on-topic floor, because a false
-# decline (recoverable — the user rephrases) is cheaper than a confident answer
-# synthesized from noise.
+#     class      n     min    mean     max
+#     on-topic  12   0.583   0.694   0.774
+#     off-topic 12   0.476   0.534   0.597
+#     adjacent   6   0.543   0.592   0.630     <- business topics not covered
+#
+# The classes now overlap: on-topic min (0.583) sits *below* off-topic max
+# (0.597). No single cosine threshold separates them, and the obvious
+# alternatives do not either — mean-of-top-8 is actively inverted, scoring
+# "what makes a retention loop work" at 0.558 against "how do I file a software
+# patent" at 0.606. More chunks simply means more chances for a topically
+# adjacent passage to score well.
+#
+# 0.55 is kept anyway, for two reasons:
+#
+#   1. Raising it to clear the off-topic ceiling would falsely decline
+#      squarely on-topic queries — at 0.60, "what makes a retention loop work"
+#      returns nothing. A false decline on a covered topic is a worse failure
+#      than passing chunks the model then declines to use.
+#   2. **The floor is a cheap pre-filter, not the grounding guarantee.** Skill
+#      A's prompt is the real backstop, and it works: given 8 irrelevant chunks
+#      for "how do I structure an ESOP", the model answers "the provided
+#      excerpts do not contain any information about structuring an ESOP" and
+#      names what the excerpts *do* cover. That decline is more specific and
+#      more useful than DECLINE_TEMPLATE would have been.
+#
+# What 0.55 still buys is the egregious cases — sourdough, northern lights,
+# lattice gauge theory — declined for free without spending a model call.
 #
 # Also tested and rejected: `nomic-embed-text`'s `search_query:` /
 # `search_document:` task prefixes. Applying the query prefix alone *narrowed*
-# separation to 0.101, because the stored vectors carry no matching document
-# prefix. Symmetric no-prefix embedding is the better pairing here.
+# separation, because the stored vectors carry no matching document prefix.
 SIMILARITY_FLOOR = 0.55
 
 
