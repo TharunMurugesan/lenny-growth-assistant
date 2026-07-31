@@ -1,0 +1,147 @@
+/* Design tokens — design.md §Design Tokens.
+ *
+ * This file is the only place a colour, radius, spacing step, or duration is
+ * allowed to be defined. Components reference var(--token) and never a
+ * literal. The QA checklist tests for exactly that.
+ *
+ * Three radii, three shadows, three durations. Anything outside these lists is
+ * a mistake. */
+
+:root {
+  /* --- Colour: light ------------------------------------------------- */
+  --bg-canvas: #ffffff;
+  --bg-subtle: #f7f7f5;
+  --bg-elevated: #ffffff;
+  --bg-inset: #f1f1ee;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-active: rgba(0, 0, 0, 0.07);
+
+  --border-subtle: #e8e8e3;
+  --border-strong: #d4d4cd;
+
+  --text-primary: #1a1a18;
+  --text-secondary: #6b6b63;
+  /* design.md specifies #9A9A91, which measures 2.51–2.84:1 across the light
+   * surfaces — well under AA and the largest contrast miss in either theme.
+   * #6D6D67 is the lightest value on the same warm ramp that clears 4.5:1 on
+   * the darkest surface it appears on (--bg-inset). */
+  --text-tertiary: #6d6d67;
+
+  --accent-50: #fef6ee;
+  --accent-100: #fde8d3;
+  --accent-500: #e87723;
+  --accent-600: #d2620f;
+  --accent-700: #a94d0c;
+
+  /* Both darkened one step from the specified #157F5A / #B45309: as given they
+   * measured 4.40 and 4.44 against --bg-inset, which is the ground the
+   * length-guard notice and the degraded-retrieval chip actually sit on. */
+  --success: #11694a;
+  --warning: #a84e08;
+  --danger: #b42318;
+
+  /* Accent used for *text* is the 700 step in light mode; 600 is fills only.
+   * This is what keeps accent-on-white at AA. */
+  --accent-text: var(--accent-700);
+  /* Text sitting on an accent *fill* (primary button, send button). Not in
+   * design.md's table, which never names one — but three components were
+   * hardcoding #fff, and a literal in three places is the thing the token
+   * system exists to prevent. */
+  --text-on-accent: #ffffff;
+
+  /* --- Spacing: 4px grid, no exceptions ------------------------------ */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* --- Radius -------------------------------------------------------- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* --- Elevation ----------------------------------------------------- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
+
+  /* --- Motion -------------------------------------------------------- */
+  --ease: cubic-bezier(0.2, 0, 0.2, 1);
+  --dur-micro: 120ms;
+  --dur-base: 180ms;
+  --dur-pane: 240ms;
+
+  /* --- Type ---------------------------------------------------------- */
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-serif: 'Newsreader', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* --- Layout -------------------------------------------------------- */
+  --sidebar-width: 264px;
+  --sidebar-rail: 56px;
+  --chat-measure: 720px;
+  --chat-min: 480px;
+}
+
+/* Dark is a separately tuned palette, not an inversion. Surfaces step *up* in
+ * lightness with elevation here, where light mode steps down — so elevation
+ * reads correctly in both without leaning on shadows. */
+[data-theme='dark'] {
+  --bg-canvas: #141413;
+  --bg-subtle: #1c1c1a;
+  --bg-elevated: #232320;
+  --bg-inset: #0f0f0e;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(255, 255, 255, 0.1);
+
+  --border-subtle: #2e2e2a;
+  --border-strong: #3d3d38;
+
+  --text-primary: #f5f5f0;
+  --text-secondary: #a8a89e;
+  /* design.md specifies #77776E, which measures 4.08:1 on --bg-canvas — below
+   * the 4.5 AA floor the accessibility section commits to for *both* themes.
+   * Lifted to the nearest value on the same warm ramp that clears AA on all
+   * three dark surfaces: canvas 5.37, subtle 4.97, elevated 4.59. Tertiary
+   * carries captions and metadata, not just disabled controls, so the
+   * disabled-text exemption does not apply. */
+  --text-tertiary: #8b8b82;
+
+  --accent-500: #f0873d;
+  --accent-600: #e87723;
+  --accent-700: #f5a768;
+
+  --success: #3dbe8b;
+  --warning: #e0a44a;
+  --danger: #f2685c;
+
+  /* The accent ramp inverts direction in dark: the *lighter* step is the
+   * readable one on a near-black ground. */
+  --accent-text: var(--accent-700);
+}
+
+/* Motion is explanation, not performance. Under reduced-motion every duration
+ * collapses — but text still streams, because that is content arriving. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-micro: 1ms;
+    --dur-base: 1ms;
+    --dur-pane: 1ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -14,7 +14,7 @@ happened to be right is not evidence of engineering judgement.
 | `01-phase-1-foundation.md` | Initial system prompt, spec interpretation, ambiguities found in the spec, and the design decisions reversed while writing the documentation. |
 | `02-phase-2-backend.md` | Database schema, SQLAlchemy models, FastAPI application, session and chat routes. Four corrections, all caught by running the code. |
 | `03-phase-3-agent-rag.md` | Ingestion, hybrid retrieval, intent router, Skills A–D, SSE streaming. Fourteen corrections, and four Phase 1 constants replaced with measured values. |
-| `04-phase-4-frontend.md` | React UI, LLM toggle, Artifact Viewer. *(added when Phase 4 runs)* |
+| `04-phase-4-frontend.md` | React UI, history sidebar, LLM toggle, Artifact Viewer. Six corrections, three of them browser defaults silently overriding intent; contrast verified across 56 token pairs. |
 
 ## Format
 

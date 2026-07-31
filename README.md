@@ -40,15 +40,14 @@ it is updated as each phase is completed and verified.
 | **1** | Project foundation and documentation (`README.md`, `design.md`, `architecture.md`, `PRD.md`, `agent_transcripts/`) | ✅ Complete |
 | **2** | PostgreSQL schema + SQLAlchemy models, FastAPI application, session and chat routes | ✅ Complete |
 | **3** | Transcript ingestion into the vector store, intent router, Skills A/B/C, SSE streaming | ✅ Complete |
-| **4** | React chat UI, history sidebar, LLM toggle, Artifact Viewer | ⬜ Not started |
+| **4** | React chat UI, history sidebar, LLM toggle, Artifact Viewer | ✅ Complete |
 
-The backend is complete and runs end to end: ingestion, hybrid retrieval, the two-tier intent
-router, all four skills, and SSE streaming are live and verified against PostgreSQL 16 + pgvector
-0.8.6 with the real 303-episode corpus. Both providers work — Cloud (Anthropic) and Local (Ollama)
-— so the LLM toggle is functional from the API today.
+All four phases are complete and the application runs end to end. Ingestion, hybrid retrieval, the
+two-tier intent router, all four skills, SSE streaming, and the React UI are live and verified
+against PostgreSQL 16 + pgvector 0.8.6 with the full 303-episode corpus (12,113 passages). Both
+providers work — Cloud (Anthropic) and Local (Ollama) — so the LLM toggle is functional end to end.
 
-**Only the frontend is outstanding.** Everything under [Quickstart](#quickstart) works now except
-step 4; the React UI, history sidebar, and Artifact Viewer arrive in Phase 4.
+Every step under [Quickstart](#quickstart) works as written.
 
 ---
 

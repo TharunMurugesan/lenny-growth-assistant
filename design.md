@@ -212,14 +212,14 @@ colour, radius, or duration.
 | `--border-strong` | `#D4D4CD` | Focused input, drag handle |
 | `--text-primary` | `#1A1A18` | Body and headings |
 | `--text-secondary` | `#6B6B63` | Metadata, timestamps, captions |
-| `--text-tertiary` | `#9A9A91` | Placeholders, disabled |
+| `--text-tertiary` | `#6D6D67` | Placeholders, disabled *(was `#9A9A91` — failed AA, see Accessibility)* |
 | `--accent-50` | `#FEF6EE` | Accent tint background |
 | `--accent-100` | `#FDE8D3` | Accent tint border |
 | `--accent-500` | `#E87723` | Accent (non-text) |
 | `--accent-600` | `#D2620F` | Primary button, active state |
 | `--accent-700` | `#A94D0C` | Primary hover, accent text on light |
-| `--success` | `#157F5A` | Provider available, ingest complete |
-| `--warning` | `#B45309` | Degraded, length-guard notice |
+| `--success` | `#11694A` | Provider available, ingest complete *(was `#157F5A`)* |
+| `--warning` | `#A84E08` | Degraded, length-guard notice *(was `#B45309`)* |
 | `--danger` | `#B42318` | Errors, destructive actions |
 
 ### Colour — Dark
@@ -236,7 +236,7 @@ colour, radius, or duration.
 | `--border-strong` | `#3D3D38` | Focused input, drag handle |
 | `--text-primary` | `#F5F5F0` | Body and headings |
 | `--text-secondary` | `#A8A89E` | Metadata |
-| `--text-tertiary` | `#77776E` | Placeholders, disabled |
+| `--text-tertiary` | `#8B8B82` | Placeholders, disabled *(was `#77776E` — failed AA)* |
 | `--accent-500` | `#F0873D` | Accent, lifted for dark contrast |
 | `--accent-600` | `#E87723` | Primary button |
 | `--accent-700` | `#F5A768` | Accent text on dark (inverted ramp direction) |
@@ -581,9 +581,23 @@ touch, since a 2px hit target is unusable with a finger.
 
 ## Accessibility
 
-- **Contrast:** all body text meets WCAG AA (≥ 4.5:1) in both themes; `--text-secondary` on
-  `--bg-subtle` was chosen at the AA boundary and verified rather than eyeballed. Accent-on-white
-  uses `--accent-700` for text, `--accent-600` only for fills.
+- **Contrast:** all body text meets WCAG AA (≥ 4.5:1) in both themes. Accent-on-white uses
+  `--accent-700` for text, `--accent-600` only for fills.
+
+  > **Measured in Phase 4, and three tokens had to change (closes O7).** All 7 text tokens were
+  > computed against all 4 surface tokens in both themes — 56 pairs. Six failed as originally
+  > specified, and the palette table above now carries the corrected values:
+  >
+  > | Token | Specified | Measured | Corrected | Why |
+  > | :---- | :-------- | :------- | :-------- | :-- |
+  > | `--text-tertiary` (light) | `#9A9A91` | 2.51–2.84:1 | `#6D6D67` | Largest miss in either theme. |
+  > | `--text-tertiary` (dark) | `#77776E` | 4.08:1 | `#8B8B82` | Below AA on `--bg-canvas`. |
+  > | `--warning` (light) | `#B45309` | 4.44:1 | `#A84E08` | Fails on `--bg-inset`, the ground the length-guard notice sits on. |
+  > | `--success` (light) | `#157F5A` | 4.40:1 | `#11694A` | Same surface. |
+  >
+  > Tertiary carries captions and metadata, not only placeholders and disabled controls, so the
+  > WCAG disabled-element exemption does not cover it. Each replacement is the smallest step on the
+  > same warm ramp that clears 4.5:1 against the *darkest* surface the token actually appears on.
 - **Focus:** a 2px `--accent-600` outline at 2px offset on every interactive element. `:focus-visible`
   only, never `outline: none`.
 - **Keyboard:** `⌘/Ctrl+K` new chat · `⌘/Ctrl+B` toggle sidebar · `⌘/Ctrl+/` focus composer ·

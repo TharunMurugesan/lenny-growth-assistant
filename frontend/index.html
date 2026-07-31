@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>The Lenny Growth Assistant</title>
+    <meta
+      name="description"
+      content="Product and growth answers grounded in Lenny's Podcast transcripts."
+    />
+    <script>
+      // Applied before first paint. Reading the theme in React would render
+      // one frame of light mode first, which is the flash design.md calls out.
+      (function () {
+        try {
+          var stored = localStorage.getItem('lga:theme') || 'system'
+          var dark =
+            stored === 'dark' ||
+            (stored === 'system' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'light')
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
