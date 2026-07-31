@@ -110,12 +110,42 @@ async def _healthcheck() -> int:
         await dispose_engine()
 
 
-def _not_until_phase_3(command: str) -> int:
-    print(
-        f"'{command}' is not implemented yet — it lands in Phase 3 with the "
-        "ingestion pipeline.",
-        file=sys.stderr,
-    )
+async def _ingest(args: argparse.Namespace) -> int:
+    """Fetch, chunk, embed, and upsert the transcript corpus."""
+    from app.ingestion.fetch import FetchError, ensure_corpus, local_corpus
+    from app.ingestion.pipeline import run_ingest
+
+    settings = get_settings()
+
+    try:
+        if args.corpus_dir:
+            episodes = local_corpus(Path(args.corpus_dir))
+        else:
+            episodes = ensure_corpus(refresh=not args.skip_fetch)
+    except FetchError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.embed_space:
+        # Override the configured space for this run only, so a corpus can be
+        # ingested into the second space without editing .env.
+        settings = settings.model_copy(update={"embed_space": args.embed_space})
+
+    engine = init_engine(settings)
+    try:
+        print(f"ingesting from {episodes}")
+        print(f"  embed space: {settings.embed_space}")
+        stats = await run_ingest(
+            engine, settings, episodes, limit_episodes=args.limit_episodes
+        )
+        print(f"done: {stats.as_line()}")
+        return 0 if not stats.errors else 1
+    finally:
+        await dispose_engine()
+
+
+def _not_implemented(command: str) -> int:
+    print(f"'{command}' is not implemented.", file=sys.stderr)
     return 2
 
 
@@ -127,18 +157,39 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init-db", help="Create enums, tables, indexes and triggers.")
     sub.add_parser("healthcheck", help="Report database and provider status.")
-    sub.add_parser("ingest", help="Ingest transcripts into the vector store. (Phase 3)")
-    sub.add_parser("reindex", help="Re-embed stored chunks. (Phase 3)")
+
+    ingest = sub.add_parser(
+        "ingest", help="Fetch, chunk, embed and store the transcript corpus."
+    )
+    ingest.add_argument(
+        "--source", choices=["github"], default="github", help="Corpus source."
+    )
+    ingest.add_argument(
+        "--corpus-dir", help="Use an existing local corpus instead of cloning."
+    )
+    ingest.add_argument(
+        "--embed-space",
+        choices=["local", "voyage"],
+        help="Override EMBED_SPACE for this run.",
+    )
+    ingest.add_argument(
+        "--skip-fetch", action="store_true", help="Do not refresh the cached corpus."
+    )
+    ingest.add_argument(
+        "--limit-episodes", type=int, help="Bound the run while developing."
+    )
 
     args = parser.parse_args(argv)
-    configure_logging("WARNING")
+    configure_logging(get_settings().log_level if args.command == "ingest" else "WARNING")
 
     try:
         if args.command == "init-db":
             return asyncio.run(_init_db())
         if args.command == "healthcheck":
             return asyncio.run(_healthcheck())
-        return _not_until_phase_3(args.command)
+        if args.command == "ingest":
+            return asyncio.run(_ingest(args))
+        return _not_implemented(args.command)
     except ConfigError as exc:
         print(f"configuration error: {exc}", file=sys.stderr)
         return 1

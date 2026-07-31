@@ -39,15 +39,16 @@ it is updated as each phase is completed and verified.
 | :---- | :---- | :----- |
 | **1** | Project foundation and documentation (`README.md`, `design.md`, `architecture.md`, `PRD.md`, `agent_transcripts/`) | ✅ Complete |
 | **2** | PostgreSQL schema + SQLAlchemy models, FastAPI application, session and chat routes | ✅ Complete |
-| **3** | Transcript ingestion into the vector store, intent router, Skills A/B/C, SSE streaming | ⬜ Not started |
+| **3** | Transcript ingestion into the vector store, intent router, Skills A/B/C, SSE streaming | ✅ Complete |
 | **4** | React chat UI, history sidebar, LLM toggle, Artifact Viewer | ⬜ Not started |
 
-The backend runs today: the schema applies, the app starts, and `/api/health`, `/api/sessions`
-and the validation half of `/api/chat` are live and verified against PostgreSQL 16 + pgvector
-0.8.6. **`POST /api/chat` does not yet generate an answer** — it validates the payload, checks
-session ownership, resolves the provider, and then returns `501 NOT_IMPLEMENTED`. Generation,
-retrieval and SSE streaming arrive in Phase 3, and the frontend in Phase 4; those sections below
-still describe the target system rather than shipped behaviour.
+The backend is complete and runs end to end: ingestion, hybrid retrieval, the two-tier intent
+router, all four skills, and SSE streaming are live and verified against PostgreSQL 16 + pgvector
+0.8.6 with the real 303-episode corpus. Both providers work — Cloud (Anthropic) and Local (Ollama)
+— so the LLM toggle is functional from the API today.
+
+**Only the frontend is outstanding.** Everything under [Quickstart](#quickstart) works now except
+step 4; the React UI, history sidebar, and Artifact Viewer arrive in Phase 4.
 
 ---
 
@@ -420,6 +421,21 @@ python -m app.cli ingest --limit-episodes 25
 Pipeline: fetch → parse (episode title, guest, source URL) → chunk on speaker-turn boundaries at
 ~800 tokens with 120-token overlap → embed in batches → upsert into `transcript_chunks` keyed by
 `(episode_slug, chunk_index)`.
+
+**What the corpus actually contains,** measured rather than assumed:
+
+| | |
+| :-- | :-- |
+| Layout | `episodes/<slug>/transcript.md` — 303 directories, exactly one file each |
+| Metadata | YAML front matter; `guest` present in 303/303, `title` in 302, `youtube_url` in 299 |
+| Speaker formats | Three (`Name (00:00:00):`, bare `Name:`, and `[00:00:00] Name: text`) — all supported |
+| Chunks produced | ~12,100 at the default 800/120 settings; median 753 tokens |
+
+**Time and cost.** Local embedding with `nomic-embed-text` runs at roughly 4 chunks/second on an
+M-series laptop, so a full ingest takes about an hour and costs nothing. It is idempotent: a second
+run over unchanged transcripts skips every chunk in well under a second, and an interrupted run
+resumes per-episode without re-embedding what it already stored. Use `--limit-episodes` while
+developing.
 
 The run is **idempotent and resumable**. Content hashes are compared before re-embedding, so an
 interrupted ingest can be re-run without duplicating rows or paying for the same embeddings twice.

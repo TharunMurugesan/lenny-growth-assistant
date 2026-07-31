@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "llama3.1:8b-instruct-q4_K_M"
     ollama_embed_model: str = "nomic-embed-text"
+    # Ollama defaults num_ctx to 4096 and silently truncates anything longer.
+    # A Skill A prompt carries 8 retrieved chunks (~6k tokens) and Skill B
+    # carries 10, so at the default the local path answers from partially
+    # truncated grounding with no error and no warning — the worst failure
+    # shape there is. Sized to fit the largest prompt plus its output budget.
+    ollama_num_ctx: int = Field(default=16384, ge=2048)
     ollama_connect_timeout: int = Field(default=5, ge=1)
     ollama_first_token_timeout: int = Field(default=90, ge=1)
     ollama_idle_timeout: int = Field(default=120, ge=1)

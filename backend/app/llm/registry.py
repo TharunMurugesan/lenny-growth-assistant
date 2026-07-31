@@ -1,9 +1,7 @@
-"""Provider availability probing — architecture.md §11.4.
+"""Provider registry and availability probing — architecture.md §11.4.
 
-Phase 2 ships the availability half only: `/api/health` must report truthfully
-which providers work, and `/api/chat` must reject an unavailable provider with
-a 503 before doing anything else. `get_provider()` returning an object that can
-actually generate arrives in Phase 3.
+`get_provider()` returns something that can actually generate; `get_status()`
+answers whether it could, cheaply enough to call on every health poll.
 
 Cloud availability is answered without a network call — a key's validity is
 discovered on first real use rather than spending an API request per health
@@ -17,6 +15,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -142,6 +141,24 @@ async def get_all_statuses(settings: Settings) -> dict[str, ProviderStatus]:
         "cloud": await get_status("cloud", settings),
         "local": await get_status("local", settings),
     }
+
+
+def get_provider(name: str, settings: Settings) -> Any:
+    """Construct a usable provider by name.
+
+    Imported lazily so that `/api/health` — which only needs `get_status` —
+    never pays for constructing an SDK client, and so a broken optional
+    dependency cannot take down the health endpoint.
+    """
+    if name == "cloud":
+        from app.llm.anthropic_provider import AnthropicProvider
+
+        return AnthropicProvider(settings)
+    if name == "local":
+        from app.llm.ollama_provider import OllamaProvider
+
+        return OllamaProvider(settings)
+    raise ProviderUnavailable(f"Unknown provider '{name}'.", detail={"provider": name})
 
 
 async def resolve_provider(

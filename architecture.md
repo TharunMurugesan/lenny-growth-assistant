@@ -675,8 +675,17 @@ Anything still ambiguous falls to Tier 2 rather than guessing.
 ### 7.3 Tier 2 — LLM classifier
 
 Runs on the small model of the active provider — `claude-haiku-4-5-20251001` in Cloud mode, the same
-local model with a tight token cap in Local mode. Temperature 0, `max_tokens` 128, and prefilled
-`{` so the response is JSON from the first token.
+local model with a tight token cap in Local mode. Temperature 0, and **structured outputs**
+(`output_config.format` with a JSON schema in Cloud mode, `format: <schema>` in Local mode) so the
+response is guaranteed-shape JSON.
+
+> **Revised in Phase 3.** This section originally specified a prefilled `{` and `max_tokens` 128.
+> Assistant-turn prefill returns a 400 on Sonnet 4.6 and the rest of the 4.6+ family, so building on
+> it would break the moment `ANTHROPIC_ROUTER_MODEL` pointed at anything but Haiku; structured
+> outputs are the supported replacement and enforce the schema rather than merely encouraging it.
+> `max_tokens` moved to 400 because the schema also carries `search_query` and `rationale`, and at
+> 128 the JSON object was occasionally truncated before its closing brace — measured at roughly
+> 1 message in 16, each one silently degrading to the `qa` fallback.
 
 The classifier does **two** jobs, which is why an LLM tier is worth its latency:
 
@@ -713,8 +722,14 @@ returns a 200-word answer.
 | :----- | :---- | :-------- | :-------- | :------- | :------------- |
 | `qa` | A | ✅ top-8 | Strict — decline if unsupported | none | temp 0.3, max 1500 |
 | `ship30` | B | ✅ top-10 | Strict on facts, free on structure | none | temp 0.7, max 3500 |
-| `artifact` | C | ⚠️ top-4, only when the request is topical | Advisory | html \| markdown | temp 0.6, max 4096 |
+| `artifact` | C | ⚠️ top-4, only when the request is topical | Advisory | html \| markdown | temp 0.6, max 16384 |
 | `meta` | D | ❌ | N/A | none | temp 0.3, max 400 |
+
+**Revised in Phase 3:** `artifact` was originally capped at 4096 output tokens. A real HTML
+dashboard does not fit — the first live run hit the cap at 9,830 bytes and terminated with
+`complete: false`. The truncation was reported honestly, but Skill C's entire deliverable *is* the
+artifact, so an honestly-reported unusable artifact is still a failed skill. The response streams,
+so the larger ceiling costs nothing when unused.
 
 `meta` (Skill D) is an addition beyond the specification's three skills. Greetings and
 "what can you do?" were being routed into strict RAG, which produced the correct-but-absurd answer
@@ -960,7 +975,7 @@ search_query
         diversity cap: at most 3 chunks per episode_slug
                      │
                      ▼
-        relevance floor: drop if cosine similarity < 0.35 and no lexical hit
+        relevance floor: drop if cosine similarity < 0.55 and no lexical hit
                      │
                      ▼
         top-K (8 for Skill A, 10 for Skill B, 4 for Skill C)
@@ -991,6 +1006,23 @@ cross-episode synthesis — which is the actual value of a corpus of interviews.
 **Why the relevance floor.** Vector search always returns its top-k, however bad. Without a floor,
 an off-topic question retrieves the 8 least-irrelevant chunks and the model dutifully synthesizes an
 answer from noise. The floor is what makes Skill A's honest decline reachable.
+
+**The floor value was measured in Phase 3, not assumed (closes O3).** This section originally
+specified 0.35, chosen before any embeddings existed. Against `nomic-embed-text` that value never
+rejects anything — the model's cosine similarities sit in a compressed high band, so an off-topic
+query ("quantum chromodynamics lattice gauge theory") still scored 0.44–0.49 and returned a full
+result set, making Skill A's decline unreachable. Measured top-similarity over the corpus:
+
+| Query type | Top similarity |
+| :--------- | :------------- |
+| On-topic   | 0.642 – 0.723  |
+| Off-topic  | 0.453 – 0.486  |
+
+0.55 sits inside that gap, deliberately nearer the off-topic ceiling: a false decline is
+recoverable (the user rephrases) where a confident answer synthesized from noise is not. Also
+tested and rejected: `nomic-embed-text`'s `search_query:` / `search_document:` task prefixes.
+Applying the query prefix alone *narrowed* separation to 0.101, because the stored vectors carry no
+matching document prefix — symmetric no-prefix embedding is the better pairing here.
 
 **Reranking** (a cross-encoder over the fused candidates) is a deliberate non-goal for this build:
 it adds a model dependency and 200–500ms for a marginal gain at top-8, and it would need a separate

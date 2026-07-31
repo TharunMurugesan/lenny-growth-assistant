@@ -20,4 +20,8 @@ greenlet==3.1.1          # required by SQLAlchemy's asyncio bridge
 httpx==0.28.1            # Ollama transport and provider availability probes
 
 # --- LLM providers (wired in Phase 3; pinned now so the venv is stable) --
-anthropic==0.42.0
+anthropic==0.120.2
+
+# --- Testing ------------------------------------------------------------
+pytest==8.3.4
+pytest-asyncio==0.25.0
