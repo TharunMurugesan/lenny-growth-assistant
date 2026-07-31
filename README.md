@@ -49,6 +49,27 @@ providers work — Cloud (Anthropic) and Local (Ollama) — so the LLM toggle is
 
 Every step under [Quickstart](#quickstart) works as written.
 
+### Verified configuration
+
+So an evaluator knows exactly what was exercised rather than inferring it:
+
+| | Verified on |
+| :-- | :-- |
+| Python | 3.12.0 |
+| PostgreSQL | 16.14 (`pgvector/pgvector:pg16` in Docker) + pgvector 0.8.6 |
+| Corpus | 303 episodes → 12,113 chunks, fully embedded |
+| Cloud | `claude-sonnet-4-6` (generation), `claude-haiku-4-5` (routing) |
+| Local embeddings | `nomic-embed-text` (768-d) |
+| Local generation | **`llama3.2:1b`** |
+| Node | 22.17 |
+
+**One honest caveat on local generation.** `OLLAMA_CHAT_MODEL` defaults to
+`llama3.1:8b-instruct-q4_K_M` because that is the better model, but the end-to-end runs recorded in
+`agent_transcripts/` were done against `llama3.2:1b`, which is what fit on the development machine.
+Both work — the provider code is model-agnostic — but if you want to reproduce exactly what was
+tested, set `OLLAMA_CHAT_MODEL=llama3.2:1b` and pull that instead (1.3 GB rather than 4.7 GB).
+Expect an 8B model to produce noticeably better Ship30for30 prose and to be slower per token.
+
 ---
 
 ## What It Does
@@ -162,7 +183,7 @@ section at the end of that document).
 
 | Requirement | Version | Notes |
 | :---------- | :------ | :---- |
-| Python | 3.11 or 3.12 | 3.13+ is untested against the pinned dependency set. |
+| Python | 3.12 recommended, 3.11 supported | Built and verified on 3.12.0. 3.13+ is untested against the pinned dependency set. |
 | Node.js | 20 LTS or newer | Vite 5 requires Node 18+; 20 LTS is what this is developed on. |
 | PostgreSQL | 15 or newer | Must have the `vector` extension available. |
 | Docker | any recent | Optional, but the fastest route to Postgres + pgvector. |
@@ -191,6 +212,14 @@ docker run -d \
   pgvector/pgvector:pg16
 ```
 
+**Why a local Postgres rather than Supabase or Railway.** The brief names both as options, and
+either works — `sql/init.sql` runs unmodified on them, and the [Deployment](#deployment) section
+covers that path. Local Docker is the default here because the testing instructions ask an
+evaluator to run the whole stack locally with their own keys and their own Ollama: a container
+needs no account, no shared credentials, and no network round-trip on every one of the 12,113
+vector lookups. To use a hosted instance instead, point `DATABASE_URL` at it, run
+`CREATE EXTENSION vector;` once, and the rest of the quickstart is identical.
+
 Using an existing PostgreSQL instance instead? Enable the extension once per database:
 
 ```sql
@@ -201,7 +230,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ```bash
 cd backend
-python3.11 -m venv .venv
+python3.12 -m venv .venv          # 3.11 also works; 3.12 is what this was built and tested on
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install --upgrade pip
 pip install -r requirements.txt
