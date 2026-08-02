@@ -26,6 +26,33 @@ from app.utils.errors import ModelNotFound, ProviderError, ProviderTimeout
 log = logging.getLogger(__name__)
 
 
+# Sampling defaults for small local models. Claude needs neither: it stays
+# coherent on temperature alone. A 1B model left at Ollama's defaults
+# (repeat_penalty 1.1, top_p 0.9) drifts into restating the same sentence with
+# different connectives once an answer runs past ~300 words. Raising the
+# repetition penalty was the single change that stopped it.
+LOCAL_TOP_P = 0.9
+LOCAL_REPEAT_PENALTY = 1.15
+
+
+def build_messages(system: str, messages: list[Msg], prefill: str = "") -> list[dict[str, str]]:
+    """System turn, conversation turns, and an optional assistant seed.
+
+    A trailing assistant message makes Ollama *continue* that turn rather than
+    answer it. That is how the `<artifact>` envelope is forced onto models too
+    small to follow the format instruction (§8.3): the caller seeds the opening
+    tag and the model only has to finish it.
+
+    Extracted from `stream_chat` so the seeding rule is directly testable
+    without standing up an HTTP transport.
+    """
+    out: list[dict[str, str]] = [{"role": "system", "content": system}]
+    out += [m.as_dict() for m in messages]
+    if prefill:
+        out.append({"role": "assistant", "content": prefill})
+    return out
+
+
 class OllamaProvider:
     name: Literal["cloud", "local"] = "local"
 
@@ -104,6 +131,7 @@ class OllamaProvider:
         temperature: float,
         max_tokens: int,
         result: StreamResult,
+        prefill: str = "",
     ) -> AsyncIterator[str]:
         payload = {
             "model": self.chat_model,
@@ -112,9 +140,10 @@ class OllamaProvider:
                 "temperature": temperature,
                 "num_predict": max_tokens,
                 "num_ctx": self.num_ctx,
+                "top_p": LOCAL_TOP_P,
+                "repeat_penalty": LOCAL_REPEAT_PENALTY,
             },
-            "messages": [{"role": "system", "content": system}]
-            + [m.as_dict() for m in messages],
+            "messages": build_messages(system, messages, prefill),
         }
 
         for attempt in range(self.timeouts.retries + 1):

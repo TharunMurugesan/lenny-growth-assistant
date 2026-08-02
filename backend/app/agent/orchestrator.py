@@ -31,17 +31,19 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent import intent_router, prompts
+from app.agent import policy
 from app.agent.retriever import retrieve
 from app.agent.types import (
     SKILL_CONFIG,
     GenerationOutcome,
     RetrievedChunk,
     RouteDecision,
+    skill_config,
 )
 from app.config import Settings
 from app.llm.base import Msg, StreamResult, Usage
 from app.models import Message, Session
-from app.utils.artifacts import ArtifactParser, EventKind
+from app.utils.artifacts import ArtifactParser, EventKind, tidy_artifact_html
 from app.utils.errors import AppError, InternalError, RetrievalEmpty
 from app.utils.sse import frame
 
@@ -54,6 +56,11 @@ HISTORY_TURNS = 6
 SHIP30_TARGET = 1250
 SHIP30_MIN = 1125
 SHIP30_MAX = 1375
+
+# Local floor. `SHIP30_SYSTEM_LOCAL` asks for 500-700 words because that is
+# what a 1B model can produce without looping; the guard has to agree with the
+# prompt or it fires on every essay.
+SHIP30_LOCAL_MIN = 450
 
 
 def _word_count(text: str) -> int:
@@ -128,13 +135,47 @@ def _build_prompt(
     model: str,
 ) -> tuple[str, str]:
     """(system, user) for the routed skill."""
+    # Local models get skill prompts rewritten for them. The shared prompts are
+    # written for Claude and measurably fail on a 1B model — see prompts.py for
+    # what was measured and why each rewrite exists.
+    local = provider_name == "local"
+
     if decision.skill == "qa":
-        return prompts.QA_SYSTEM, prompts.qa_user(chunks, message)
+        system = prompts.qa_system_local(len(chunks)) if local else prompts.QA_SYSTEM
+        return system, prompts.qa_user(chunks, message)
     if decision.skill == "ship30":
-        return prompts.SHIP30_SYSTEM, prompts.ship30_user(chunks, message)
+        system = prompts.SHIP30_SYSTEM_LOCAL if local else prompts.SHIP30_SYSTEM
+        return system, prompts.ship30_user(chunks, message)
     if decision.skill == "artifact":
-        return prompts.ARTIFACT_SYSTEM, prompts.artifact_user(chunks, message)
+        system = prompts.ARTIFACT_SYSTEM_LOCAL if local else prompts.ARTIFACT_SYSTEM
+        return system, prompts.artifact_user(chunks, message)
     return prompts.meta_system(provider_name, model), message
+
+
+async def _artifact_title(provider: Any, request: str) -> str:
+    """Ask the model to name the document; fall back if it cannot.
+
+    The scaffold needs a title *before* generation starts, which is why this was
+    originally derived mechanically from the first few words of the request —
+    and it read like it, because "Build me a dashboard mockup showing weekly
+    cohort retention" is a request, not a title.
+
+    A short structured call is the one shape a 1B model is reliably good at:
+    the same `classify` path already drives Tier 2 routing. It costs a few
+    seconds, and any unusable answer falls back to the derived title rather
+    than blocking the artifact.
+    """
+    fallback = prompts.artifact_title_from_request(request)
+    try:
+        raw = await provider.classify(
+            prompts.ARTIFACT_TITLE_SYSTEM,
+            f"Request: {request}\nTitle:",
+            prompts.ARTIFACT_TITLE_SCHEMA,
+        )
+        return prompts.clean_artifact_title(str(raw.get("title", "")), fallback)
+    except Exception as exc:  # noqa: BLE001
+        log.info("artifact title fell back", extra={"error": type(exc).__name__})
+        return fallback
 
 
 async def _ship30_repair(
@@ -205,7 +246,7 @@ async def run_chat(
             },
         )
 
-        config = SKILL_CONFIG[decision.skill]
+        config = skill_config(decision.skill, llm_provider_name)
         assistant_id = uuid.uuid4()
 
         yield frame(
@@ -235,7 +276,13 @@ async def run_chat(
                 log.warning("retrieval failed", extra={"error": type(exc).__name__})
 
         # --- Skill A honest decline (a success path, not an error) -------
-        if decision.skill == "qa" and not chunks:
+        # The scope rule lives in policy.py as evaluable code rather than as a
+        # sentence in a prompt, because a 1B model treats prompt rules as
+        # optional. Enforced on local only: Claude declines correctly by itself
+        # and names what the corpus does cover, which beats the template.
+        verdict = policy.evaluate(chunks, enforced=llm_provider_name == "local")
+
+        if decision.skill == "qa" and verdict.declined:
             text = prompts.DECLINE_TEMPLATE
             for piece in text.split("\n"):
                 yield frame("token", {"text": piece + "\n"})
@@ -250,12 +297,59 @@ async def run_chat(
             stream_result = StreamResult(usage=Usage())
             emitted_artifact = False
 
+            # Force the artifact envelope on local models by seeding the
+            # assistant turn (§8.3). The seed is fed to the parser here rather
+            # than yielded by the provider, because the model never sends it
+            # back — it continues from it. The parser holds the partial tag in
+            # its carry buffer and emits artifact_start once the model's first
+            # delta closes it, so this needs no parser change and produces the
+            # identical event sequence the cloud path produces.
+            prefill = ""
+            scaffolded = False
+            body_buffer: list[str] = []
+            if decision.skill == "artifact" and llm_provider_name == "local":
+                scaffolded = decision.artifact_type != "markdown"
+                if decision.artifact_type == "markdown":
+                    # Markdown carries no styling, so there is nothing to
+                    # scaffold — the opening tag alone is enough.
+                    prefill = prompts.artifact_prefill("markdown")
+                else:
+                    # HTML gets the full styled head prefilled, so the model
+                    # writes body content against classes that already exist.
+                    prefill = prompts.artifact_scaffold(
+                        await _artifact_title(provider, user_message)
+                    )
+                # The scaffold contains a COMPLETE opening tag followed by the
+                # document head, so feeding it emits artifact_start and a large
+                # artifact_delta immediately. Both must be forwarded: dropping
+                # them would leave the client with a viewer that never opened
+                # and an artifact missing its <head> and stylesheet.
+                for event in parser.feed(prefill):
+                    if event.kind is EventKind.TEXT:
+                        yield frame("token", {"text": event.text})
+                    elif event.kind is EventKind.ARTIFACT_START:
+                        emitted_artifact = True
+                        yield frame(
+                            "artifact_start",
+                            {
+                                "artifact_id": artifact_id,
+                                "type": event.artifact_type,
+                                "title": event.title,
+                            },
+                        )
+                    elif event.kind is EventKind.ARTIFACT_DELTA:
+                        yield frame(
+                            "artifact_delta",
+                            {"artifact_id": artifact_id, "text": event.text},
+                        )
+
             async for delta in provider.stream_chat(
                 system,
                 [Msg("user", user)],
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
                 result=stream_result,
+                prefill=prefill,
             ):
                 if await is_disconnected():
                     # §3 cancellation: break, persist the partial, no orphaned
@@ -278,10 +372,19 @@ async def run_chat(
                             },
                         )
                     elif event.kind is EventKind.ARTIFACT_DELTA:
-                        yield frame(
-                            "artifact_delta",
-                            {"artifact_id": artifact_id, "text": event.text},
-                        )
+                        # On the scaffolded local path the body is held back
+                        # rather than streamed, because it is tidied as a whole
+                        # once complete — an empty <tbody> cannot be recognised
+                        # until its closing tag arrives. The head and stylesheet
+                        # have already streamed, so the viewer is open and
+                        # styled while this fills.
+                        if scaffolded:
+                            body_buffer.append(event.text)
+                        else:
+                            yield frame(
+                                "artifact_delta",
+                                {"artifact_id": artifact_id, "text": event.text},
+                            )
                     elif event.kind is EventKind.ARTIFACT_END:
                         yield frame(
                             "artifact_end",
@@ -289,6 +392,41 @@ async def run_chat(
                                 "artifact_id": artifact_id,
                                 "bytes": len(parser.artifact_content.encode()),
                                 "complete": event.complete,
+                            },
+                        )
+
+            # Flush the held-back body, tidied. Emptied containers are dropped
+            # rather than rendered, so the worst case is a sparse artifact
+            # instead of one showing a header-only table and a blank card.
+            if scaffolded and body_buffer:
+                tidied = tidy_artifact_html("".join(body_buffer))
+                if tidied:
+                    yield frame(
+                        "artifact_delta",
+                        {"artifact_id": artifact_id, "text": tidied},
+                    )
+
+            # Deterministic closure for the scaffolded local path. We wrote the
+            # opening of this document, so closing it is our responsibility
+            # rather than the model's: if it exhausted its budget mid-markup,
+            # appending the tail is the difference between a page that renders
+            # and one that does not. Only when </html> is genuinely absent, so
+            # a model that finished properly is never double-closed.
+            if scaffolded and "</html>" not in parser.artifact_content.lower():
+                for event in parser.feed("\n</div>\n</body>\n</html></artifact>"):
+                    if event.kind is EventKind.ARTIFACT_DELTA:
+                        yield frame(
+                            "artifact_delta",
+                            {"artifact_id": artifact_id, "text": event.text},
+                        )
+                    elif event.kind is EventKind.ARTIFACT_END:
+                        emitted_artifact = True
+                        yield frame(
+                            "artifact_end",
+                            {
+                                "artifact_id": artifact_id,
+                                "bytes": len(parser.artifact_content.encode()),
+                                "complete": True,
                             },
                         )
 
@@ -301,12 +439,24 @@ async def run_chat(
                     )
                 elif event.kind is EventKind.ARTIFACT_END:
                     emitted_artifact = True
+                    # The parser reaches here only when the stream ended with
+                    # the artifact still open, which it reports as incomplete.
+                    # That conflates two different things: a genuinely truncated
+                    # stream, and a model that finished its work but omitted
+                    # </artifact>. Small local models do the latter routinely.
+                    # Only max_tokens or a disconnect is real truncation, so
+                    # only those should raise the viewer's "Incomplete" badge —
+                    # otherwise a whole artifact renders as damaged goods.
+                    settled_cleanly = (
+                        outcome.finish_reason != "client_disconnect"
+                        and stream_result.finish_reason == "stop"
+                    )
                     yield frame(
                         "artifact_end",
                         {
                             "artifact_id": artifact_id,
                             "bytes": len(parser.artifact_content.encode()),
-                            "complete": event.complete,
+                            "complete": event.complete or settled_cleanly,
                         },
                     )
 
@@ -316,10 +466,16 @@ async def run_chat(
             prose = parser.prose
 
             # --- Skill B length guard --------------------------------------
+            # The 1250-word target is a Claude target. A 1B model asked to
+            # continue an already-thin essay does not add substance, it repeats
+            # itself — so on local the guard would fire on every single essay
+            # and actively degrade the result it was written to protect. Local
+            # aims at the 500-700 band its prompt asks for, and is left alone.
+            ship30_floor = SHIP30_LOCAL_MIN if llm_provider_name == "local" else SHIP30_MIN
             if (
                 decision.skill == "ship30"
                 and outcome.finish_reason == "stop"
-                and _word_count(prose) < SHIP30_MIN
+                and _word_count(prose) < ship30_floor
             ):
                 short_by = SHIP30_TARGET - _word_count(prose)
                 log.info("ship30 below target, one repair pass",
@@ -356,7 +512,15 @@ async def run_chat(
 
             if emitted_artifact and parser.artifact_content:
                 outcome.artifact_type = parser.artifact_type or "none"
-                outcome.artifact_content = parser.artifact_content
+                # The parser's fourth invariant is that what is persisted is
+                # byte-identical to what was streamed. Buffering the scaffolded
+                # body to tidy it would break that, so the same tidy runs here.
+                # It is a no-op on the scaffold head, which has no containers to
+                # empty, so this reproduces exactly what the client received.
+                content = parser.artifact_content
+                outcome.artifact_content = (
+                    tidy_artifact_html(content) if scaffolded else content
+                )
                 outcome.artifact_title = parser.artifact_title
 
         # --- persist the assistant turn ---------------------------------

@@ -140,6 +140,7 @@ class AnthropicProvider:
         temperature: float,
         max_tokens: int,
         result: StreamResult,
+        prefill: str = "",
     ) -> AsyncIterator[str]:
         """Yield text deltas.
 
@@ -148,6 +149,13 @@ class AnthropicProvider:
         so after first token a failure becomes terminal.
         """
         payload = [m.as_dict() for m in messages]
+        # Anthropic prefills the same way — a trailing assistant turn is
+        # continued rather than answered. Sonnet follows the artifact
+        # instruction unaided, so this stays unused in practice; it exists so
+        # both providers honour one interface instead of one growing a special
+        # case the orchestrator has to know about.
+        if prefill:
+            payload.append({"role": "assistant", "content": prefill})
 
         for attempt in range(self.timeouts.retries + 1):
             emitted = False

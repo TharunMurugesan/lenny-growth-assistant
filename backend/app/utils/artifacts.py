@@ -56,6 +56,124 @@ OPEN_TAG_RE = re.compile(
 )
 
 
+# --- local artifact tidy-up ----------------------------------------------
+#
+# Three successive prompt designs were measured against llama3.2:1b and the
+# results were not monotonic — one run produced four populated cards, the next
+# an empty card, a header-only table and an empty bar. The model cannot hold a
+# structure of this size, so the structure stops depending on it.
+#
+# These rules delete containers the model opened and never filled. Nothing is
+# invented: an empty <tbody> becomes no table rather than a fabricated one, so
+# a sparse artifact is possible but a visibly broken one is not.
+_EMPTY_TABLE = re.compile(r"<table\b(?:(?!</table>).)*?</table>", re.S | re.I)
+_EMPTY_CARD = re.compile(r'<div class="card"\s*>(?:(?!</div>).)*?</div>', re.S | re.I)
+_EMPTY_BAR = re.compile(r'<div class="bar"\s*>(?:(?!</div>).)*?</div>', re.S | re.I)
+_PLACEHOLDER = re.compile(r"\[(?:your name|name|date|company|team)\]", re.I)
+_EMPTY_TAG = re.compile(r"<(p|h2|li)\b[^>]*>\s*</\1>", re.I)
+
+
+_BLOCK = re.compile(
+    r"<table\b(?:(?!</table>).)*?</table>"
+    r"|<div class=\"grid\"\s*>(?:(?!</div>\s*</div>).)*?</div>\s*</div>"
+    r"|<ul\b(?:(?!</ul>).)*?</ul>",
+    re.S | re.I,
+)
+
+
+def _drop_repeated_blocks(html: str) -> str:
+    """Delete a component the model has already emitted verbatim.
+
+    Repetition is the failure mode a generous token budget reintroduces: the
+    model writes a correct table, then writes the same table again. Capping
+    tokens suppressed it but also capped how much content the page could carry.
+    Removing exact repeats here is what lets the budget be generous again —
+    only byte-identical blocks are dropped, so two genuinely different tables
+    both survive.
+    """
+    seen: set[str] = set()
+
+    def keep(match: re.Match[str]) -> str:
+        key = " ".join(match.group(0).split())
+        if key in seen:
+            return ""
+        seen.add(key)
+        return match.group(0)
+
+    return _BLOCK.sub(keep, html)
+
+
+def _align_table_columns(html: str) -> str:
+    """Make each table's header width match its body rows.
+
+    The visible symptom was a table whose header sat in one block and whose
+    rows floated offset beside it. That is not a styling bug: the model wrote a
+    four-column <thead> and three-cell body rows, and a browser lays that out
+    exactly as badly as it sounds. Trimming the header to the body's width is
+    the honest repair — it drops a column heading the rows never had data for,
+    rather than inventing a column of blanks to pad with.
+    """
+
+    def fix(match: re.Match[str]) -> str:
+        table = match.group(0)
+        body = re.search(r"<tbody\b[^>]*>(.*?)</tbody>", table, re.S | re.I)
+        if not body:
+            return table
+        widths = [
+            len(re.findall(r"<td\b", row))
+            for row in re.findall(r"<tr\b[^>]*>.*?</tr>", body.group(1), re.S | re.I)
+        ]
+        widths = [w for w in widths if w]
+        if not widths:
+            return table
+        want = max(set(widths), key=widths.count)  # the most common row width
+
+        def trim_head(head: re.Match[str]) -> str:
+            cells = re.findall(r"<th\b[^>]*>.*?</th>", head.group(1), re.S | re.I)
+            if len(cells) <= want:
+                return head.group(0)
+            return f"<thead><tr>{''.join(cells[:want])}</tr></thead>"
+
+        return re.sub(
+            r"<thead\b[^>]*>(.*?)</thead>", trim_head, table, flags=re.S | re.I
+        )
+
+    return re.sub(r"<table\b(?:(?!</table>).)*?</table>", fix, html, flags=re.S | re.I)
+
+
+def tidy_artifact_html(html: str) -> str:
+    """Remove structural containers the model left empty.
+
+    Applied only to the scaffolded local path, where the document skeleton is
+    ours and the model supplies content. Deliberately conservative: it deletes,
+    never fills.
+    """
+
+    def drop_if(pattern: re.Pattern[str], must_contain: str) -> None:
+        nonlocal html
+        html = pattern.sub(
+            lambda m: m.group(0) if must_contain in m.group(0).lower() else "", html
+        )
+
+    # Anything after </html> renders outside the styled wrapper — a stray table
+    # or a sentence floating at full bleed under the page. The model does this
+    # when it keeps going after finishing; cut it rather than show it.
+    end = html.lower().find("</html>")
+    if end != -1:
+        html = html[: end + len("</html>")]
+
+    html = _drop_repeated_blocks(html)
+    html = _align_table_columns(html)
+    drop_if(_EMPTY_TABLE, "<td")  # header row but no data
+    drop_if(_EMPTY_CARD, 'class="metric"')  # card with no number
+    drop_if(_EMPTY_BAR, "width:")  # bar with no fill
+    html = _PLACEHOLDER.sub("", html)
+    html = _EMPTY_TAG.sub("", html)
+    # A heading left with nothing beneath it reads as a rendering failure.
+    html = re.sub(r"<h2\b[^>]*>[^<]*</h2>\s*(?=(<h2|</div>|</body>))", "", html, flags=re.I)
+    return html
+
+
 class State(Enum):
     TEXT = auto()
     MAYBE_OPEN = auto()

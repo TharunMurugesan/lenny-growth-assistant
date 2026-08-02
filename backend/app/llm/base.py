@@ -87,8 +87,17 @@ class LLMProvider(Protocol):
         temperature: float,
         max_tokens: int,
         result: StreamResult,
+        prefill: str = "",
     ) -> AsyncIterator[str]:
-        """Yield plain text deltas. Fills `result` as the stream terminates."""
+        """Yield plain text deltas. Fills `result` as the stream terminates.
+
+        `prefill` seeds the assistant turn: the model continues from it rather
+        than starting fresh. Small local models cannot reliably reproduce the
+        `<artifact>` envelope from an instruction alone, so the caller prefills
+        the opening tag and the model only has to finish it. The prefill itself
+        is NOT yielded — the caller already has that text and feeds it to the
+        parser directly.
+        """
         ...
 
     async def complete(

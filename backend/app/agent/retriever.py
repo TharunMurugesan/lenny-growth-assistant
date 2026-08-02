@@ -81,6 +81,54 @@ MAX_PER_EPISODE = 3
 # separation, because the stored vectors carry no matching document prefix.
 SIMILARITY_FLOOR = 0.55
 
+# --- local-only grounding gate -------------------------------------------
+#
+# The comment above says the floor is a pre-filter and "Skill A's prompt is the
+# real backstop, and it works". That is true of Claude and false of a 1B local
+# model, which is the whole problem. Asked "what is the best way to roast a
+# chicken?" against chunks about podcasts, llama3.2:1b answered from its own
+# knowledge — herbs, salt, rubbing the bird — and attached a citation to an
+# unrelated excerpt, so the answer *looked* sourced. Cloud, same question, same
+# chunks, declined correctly.
+#
+# Three guards were built and measured before this one:
+#
+#   content-word overlap between answer and excerpts — useless. Off-topic
+#     answers scored 0.85-0.94 because ordinary English words appear in both.
+#   asking the local model to judge its own groundedness — 2/6. It returned
+#     answerable=true while its own reason field read "does not directly
+#     discuss roasting", and answered the World Cup question from memory.
+#   max single similarity — separates, but by only 0.0096.
+#
+# What survived is the mean of the top three dense similarities, measured over
+# 17 on-topic and 12 off-topic questions:
+#
+#     on-topic   mean3 in [0.6262, 0.8010]
+#     off-topic  mean3 in [0.0000, 0.6123]
+#
+# 0.62 sits in that gap and separated all 29. The margin is thin — this is a
+# heuristic, not a proof — so it is applied ONLY on the local path, where there
+# is no prompt backstop. Cloud keeps the existing behaviour, which works and
+# produces a more specific decline than the template can.
+LOCAL_GROUNDING_FLOOR = 0.62
+GROUNDING_SAMPLE = 3
+
+
+def grounding_score(chunks: list[RetrievedChunk]) -> float:
+    """Mean of the top `GROUNDING_SAMPLE` dense similarities.
+
+    The mean of three rather than the single best: one topically adjacent chunk
+    scoring well is common on off-topic queries, and taking the max lets that
+    one chunk carry the whole decision.
+    """
+    sims = sorted(
+        (c.similarity for c in chunks if c.similarity is not None), reverse=True
+    )
+    if not sims:
+        return 0.0
+    top = sims[:GROUNDING_SAMPLE]
+    return sum(top) / len(top)
+
 
 @dataclass
 class RetrievalResult:

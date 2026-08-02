@@ -662,7 +662,7 @@ exactly one of `done` or `error` ends every stream:
 │   │   ├── schemas.py              # request/response validation
 │   │   ├── cli.py                  # init-db, ingest, healthcheck
 │   │   ├── routers/                # health, sessions, chat
-│   │   ├── agent/                  # router, retriever, prompts, orchestrator
+│   │   ├── agent/                  # router, retriever, policy, prompts, orchestrator
 │   │   ├── llm/                    # provider interface, Anthropic, Ollama, embeddings
 │   │   ├── ingestion/              # fetch, parse, chunk, pipeline
 │   │   └── utils/                  # artifact parser, errors, SSE, logging
@@ -742,20 +742,40 @@ So an evaluator knows exactly what was exercised rather than inferring it:
 | Cloud | `claude-sonnet-4-6` (generation), `claude-haiku-4-5` (routing) |
 | Local embeddings | `nomic-embed-text` (768-d) |
 | Local generation | **`llama3.2:1b`** — see the caveat below |
-| Automated tests | 147 passing |
+| Automated tests | 182 passing |
 | Development machine RAM | 8 GB |
 
-**An honest caveat on the local model.** `llama3.1:8b-instruct-q4_K_M` was pulled and tested, and
-it **did not run on the development machine**: an 8B model at 4-bit quantisation needs roughly 5 GB
-resident, plus the 16K context window, and the machine has 8 GB of RAM total. The request timed out
-before the first token while the model was still loading. Every end-to-end run recorded in
-`agent_transcripts/` therefore used **`llama3.2:1b`**, which runs comfortably in the same footprint.
+**An honest caveat on the local model — and a correction.** An earlier version of this README stated
+that `llama3.1:8b-instruct-q4_K_M` *would not run* on the development machine. That was true when
+written and is no longer true, so it is corrected here rather than quietly deleted.
 
-This is why `.env.example` defaults to `llama3.2:1b` rather than the larger model. If your machine
-has **16 GB of RAM or more**, `llama3.1:8b-instruct-q4_K_M` will produce noticeably better
-Ship30for30 prose and is worth switching to — the provider code is model-agnostic and nothing else
-changes. The relevant guidance from the brief is *"any model that runs comfortably on your laptop"*,
-and on this hardware that is the 1B.
+The original failure was real: at `OLLAMA_NUM_CTX=16384` with eight retrieved excerpts, the request
+timed out before the first token while the model was still loading. The local path has since been
+resized — **8192 context and four excerpts** — which roughly halves the memory the request needs.
+Under those settings the 8B **does load and answer**, and its artifact output is markedly better:
+it adapts content to the request instead of copying the prompt's example structure.
+
+It is still not the default, for one measured reason: **~5 minutes per artifact** on this hardware,
+against ~20–50 seconds for `llama3.2:1b`. That is unusable interactively, so `.env.example` ships
+the 1B and every end-to-end run recorded in `agent_transcripts/` used it.
+
+If your machine has **16 GB of RAM or more**, switch — the provider code is model-agnostic and only
+`OLLAMA_CHAT_MODEL` changes. The brief asks for *"any model that runs comfortably on your laptop"*,
+and on 8 GB the model that runs *comfortably* is the 1B.
+
+**What the 1B costs you, stated plainly.** Grounded Q&A is good: it answers from the transcripts,
+cites them, and declines off-topic questions (see §4). Two skills are weaker than on Cloud, and both
+are model-capacity limits rather than unfixed bugs — instruction adherence on a 1B decays as output
+grows:
+
+- **Ship30for30** reaches the right length and closing takeaway, but drops the bracketed citations
+  and heavy formatting past roughly 400 words. On Cloud the same prompt produces 1,301 words with
+  9 bold phrases, 10 bullets, a takeaway and 5 citations.
+- **Artifacts** render styled and complete, but content volume varies between runs — some pages
+  carry a table, cards and a list; others come back sparse.
+
+The design system, the empty-container cleanup, and the table-column repair are all deterministic
+(`app/utils/artifacts.py`), so what the model gets wrong is content richness, never layout.
 
 ### Project documentation
 

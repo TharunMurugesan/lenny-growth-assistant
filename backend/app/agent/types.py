@@ -90,6 +90,48 @@ SKILL_CONFIG: dict[SkillName, SkillConfig] = {
     "meta": SkillConfig(top_k=0, temperature=0.3, max_tokens=400, retrieves=False),
 }
 
+# The table above is sized for Claude. Handing the same budget to a 1B local
+# model makes it measurably worse, not merely slower — all three numbers were
+# arrived at by measurement rather than taste:
+#
+#   top_k       Eight excerpts is ~6,200 input tokens. The local model does not
+#               attend across that; it summarises the first one or two and
+#               drops the rest. Four excerpts halved input tokens (6,226 ->
+#               3,052) and cut latency from 43s to 20s with no loss of content.
+#   temperature Claude stays coherent at 0.3-0.7. The small model rambles and
+#               repeats above ~0.2, so every skill is pinned lower.
+#   max_tokens  16384 is a ceiling Claude needs for a full dashboard. The local
+#               model never approaches it and the oversized allocation costs
+#               memory on an 8 GB machine.
+LOCAL_SKILL_CONFIG: dict[SkillName, SkillConfig] = {
+    "qa": SkillConfig(top_k=4, temperature=0.2, max_tokens=800),
+    "ship30": SkillConfig(top_k=5, temperature=0.5, max_tokens=2600),
+    # 700, and the temperature is low, because the budget IS the guard rail.
+    # Across four prompt designs the failure was never that the model wrote too
+    # little — it was that a generous budget let it keep inventing sections
+    # until it truncated mid-cell (8,791 characters in the worst run). The
+    # scaffold supplies the head and stylesheet, so the model writes one short
+    # table and a caption, which fits in 700 with room to spare.
+    # The cap used to be the anti-repetition guard: at 700 the model wrote its
+    # output correctly and then wrote it AGAIN. That made the budget do two
+    # jobs at once, and starving it to stop repetition also starved the page of
+    # content. Repetition is now removed deterministically by
+    # `_drop_repeated_blocks`, so the budget only has to size the page — 1100
+    # carries the four to six components the prompt asks for.
+    "artifact": SkillConfig(top_k=4, temperature=0.35, max_tokens=1100),
+    "meta": SkillConfig(top_k=0, temperature=0.2, max_tokens=300, retrieves=False),
+}
+
+
+def skill_config(skill: SkillName, provider_name: str) -> SkillConfig:
+    """Budget for this skill on this provider.
+
+    Kept as a lookup rather than a field on the provider so that the numbers
+    stay in one table, next to the reasoning for them.
+    """
+    table = LOCAL_SKILL_CONFIG if provider_name == "local" else SKILL_CONFIG
+    return table[skill]
+
 
 @dataclass
 class GenerationOutcome:
